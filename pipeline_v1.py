@@ -37,48 +37,103 @@ def fetch_weather():
     """Extract weather data from the API."""
     logger.info("Requesting weather data...")
 
-    response = requests.get(
-        API_URL,
-        params=PARAMS,
-        timeout=30,
-    )
-    response.raise_for_status()
+    try:
+        response = requests.get(
+            API_URL,
+            params = PARAMS,
+            timeout = 30
+        )
+        
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        
+        data = response.json()
+        
+        if not isinstance(data, dict):
+            raise ValueError("API response must be a dictionary.")
+        
+        if "hourly" not in data:
+            raise ValueError("API response missing 'hourly' field.")
+        
+        logger.info("Weather data fetched successfully.")
+        return data
+    
+    except requests.Timeout:
+        logger.error("Request timed out.")
+        raise
+    
+    except requests.HTTPError as error:
+        logger.error("HTTP error occurred: %s", error)
+        raise
+    
+    except requests.RequestException as error:
+        logger.error("Request failed: %s", error)
+        raise
 
-    data = response.json()
-
-    if not isinstance(data, dict) or "hourly" not in data:
-        raise ValueError("API response is missing the hourly data section.")
-
-    logger.info("Weather data retrieved successfully.")
-    return data
-
-
+    except ValueError as error:
+        logger.error("Data validation error: %s", error)
+        raise
+    
+    
 def validate_weather(data):
-    """Check that required hourly fields exist and have matching lengths."""
-    hourly = data["hourly"]
+    
+    """Validates the content and structure of the API data."""
+    
+    if not isinstance(data, dict):
+        raise ValueError("API reposnse must be a dictionary.")
 
-    required_fields = [
+    required_metadata = [
+        "latitude",
+        "longitude",
+        "timezone",
+    ]
+    
+    for field in required_metadata: 
+        if field not in data:
+            raise ValueError(f"Missing meta data field:{field.capitalize()}")
+        
+    if not isinstance(data["latitude"], (int, float)):
+        raise ValueError("Latitude must be numeric.")
+
+    if not isinstance(data["longitude"], (int, float)):
+        raise ValueError("Longitude must be numeric. ")
+    
+    if not isinstance(data["timezone"], str) or not data["timezone"].strip():
+        raise ValueError("Timezone must be a non empty string.")
+
+    if "hourly" not in data or not isinstance(data["hourly"], dict):
+        raise ValueError("Missing or invalide hour data.")
+    
+    hourly = data["hourly"]
+    
+    required_field = [
         "time",
         "temperature_2m",
         "precipitation",
     ]
-
-    missing = [field for field in required_fields if field not in hourly]
-
-    if missing:
-        raise ValueError(f"Missing required fields: {missing}")
-
-    lengths = {field: len(hourly[field]) for field in required_fields}
-
-    if len(set(lengths.values())) != 1:
-        raise ValueError(f"Hourly arrays have different lengths: {lengths}")
-
+    
+    for field in required_field: 
+        if field not in hourly:            
+            raise ValueError(f"Missing hourly field: {field}")
+        
+        if not isinstance(hourly[field], list):
+            raise ValueError(f"{field} must be in list.")
+        
+    lengths = [
+        len(hourly["time"]),
+        len(hourly["temperature_2m"]),
+        len(hourly["precipitation"])
+    ]
+    
+    if len(set(lengths)) != 1:
+        raise ValueError("Weather arrays have different length.")
+    
     if not hourly["time"]:
-        raise ValueError("The API returned no hourly records.")
-
-    logger.info("Validation passed: %s hourly records.", len(hourly["time"]))
-
-
+        raise ValueError("Weather array does not have timestamp.")
+    
+    logger.info("Weather data validated successfully.")
+    
+    return True    
+    
 def save_raw_json(data, run_id):
     """Preserve the original API response."""
     path = RAW_DIR / f"weather_{run_id}.json"
